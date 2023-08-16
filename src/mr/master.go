@@ -125,19 +125,19 @@ func (m *Master) createReduceTask() {
 func (m *Master) catchTimeOut() {
 	for {
 		time.Sleep(2 * time.Second)
+		mu.Lock()
 		if m.MasterPhase == Exit {
+			mu.Unlock()
 			return
 		}
-		for i := range m.TaskMeta {
-			mu.Lock()
-			masterTask := m.TaskMeta[i]
+		for _, masterTask := range m.TaskMeta {
 			if masterTask.TaskStatus == InProgress && time.Now().Sub(masterTask.StartTime) >= 10*time.Second {
 				// 因为worker写在同一个文件磁盘上，对于重复的结果要丢弃
 				m.TaskQueue <- masterTask.TaskReference
 				masterTask.TaskStatus = Idle
 			}
-			mu.Unlock()
 		}
+		mu.Unlock()
 	}
 }
 
@@ -163,7 +163,7 @@ func MakeMaster(files []string, nReduce int) *Master {
 	//拥有master代码的就是master，别的发RPC过来的都是worker
 	m.server()
 	// 启动一个goroutine 检查超时的任务
-	//go m.catchTimeOut()
+	go m.catchTimeOut()
 	return &m
 }
 

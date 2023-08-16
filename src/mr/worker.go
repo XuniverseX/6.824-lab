@@ -85,14 +85,18 @@ func mapper(task *Task, mapf func(string, string) []KeyValue) {
 }
 
 func reducer(task *Task, reducef func(string, []string) string) {
+	//从intermediates中读取kv
 	intermediate := readFromIntermediates(task.Intermediates)
+	//排序
 	sort.Sort(ByKey(intermediate))
-	oname := fmt.Sprintf("mr-out-%d", task.TaskNumber)
-	file, err := os.OpenFile(oname, os.O_CREATE|os.O_RDWR, 0777)
+
+	dir, err := os.Getwd()
+	tempFile, err := ioutil.TempFile(dir, "mr-tmp-*")
 	if err != nil {
-		log.Fatal("failed to create file: ", oname, err)
+		log.Fatal("failed to create tempFile: ", tempFile.Name(), err)
 	}
 
+	//来自mrsequential.go
 	i := 0
 	for i < len(intermediate) {
 		j := i + 1
@@ -106,12 +110,14 @@ func reducer(task *Task, reducef func(string, []string) string) {
 		output := reducef(intermediate[i].Key, values)
 
 		// this is the correct format for each line of Reduce output.
-		fmt.Fprintf(file, "%v %v\n", intermediate[i].Key, output)
+		fmt.Fprintf(tempFile, "%v %v\n", intermediate[i].Key, output)
 
 		i = j
 	}
 
-	file.Close()
+	tempFile.Close()
+	oname := fmt.Sprintf("mr-out-%d", task.TaskNumber)
+	os.Rename(tempFile.Name(), oname)
 	task.Output = oname
 	TaskCompleted(task)
 
