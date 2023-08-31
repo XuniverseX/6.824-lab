@@ -169,9 +169,9 @@ func (rf *Raft) ticker() {
 
 		rf.mu.Lock()
 		if rf.state == Leader {
-			rf.appendEntries()
+			rf.appendEntries(true)
 		}
-		if time.Now().After(rf.electionTime) {
+		if time.Now().After(rf.electionTime) && len(rf.peers) > 1 {
 			rf.leaderElection()
 		}
 		rf.mu.Unlock()

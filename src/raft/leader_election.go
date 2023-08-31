@@ -19,10 +19,9 @@ func (rf *Raft) leaderElection() {
 	rf.votedFor = rf.me
 	rf.resetElectionTimeout()
 
-	DPrintf("[server %d] term:%d leaderElection", rf.me, rf.currentTerm)
-
 	lastLog := rf.lastLog()
 
+	DPrintf("[server %v]: start leader election, term %d\n", rf.me, rf.currentTerm)
 	args := RequestVoteArgs{
 		Term:         rf.currentTerm,
 		CandidateId:  rf.me,

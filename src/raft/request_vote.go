@@ -26,34 +26,47 @@ func (rf *Raft) GetState() (int, bool) {
 	// Your code here (2A).
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	DPrintf("[server %d] Term:%d I am %d", rf.me, rf.currentTerm, rf.state)
 	return rf.currentTerm, rf.state == Leader
 }
 
 func (rf *Raft) candidateSend(server int, args *RequestVoteArgs, count *int, once *sync.Once) {
-	//DPrintf("[server %d]: term %v send RequestVote to %d\n", rf.me, args.Term, server)
+	DPrintf("[server %d]: term %v send RequestVote to %d\n", rf.me, args.Term, server)
 	var reply RequestVoteReply
 	ok := rf.sendRequestVote(server, args, &reply)
 	if !ok {
 		return
 	}
 
-	if !reply.VoteGranted {
-		//DPrintf("[server %d]: %d 没有投给me，结束\n", rf.me, server)
-		return
-	}
-
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+
+	if reply.Term > args.Term {
+		DPrintf("[server %d] %d 在新的term，更新term，结束\n", rf.me, server)
+		rf.currentTerm = reply.Term
+		return
+	}
+	if reply.Term < args.Term {
+		DPrintf("[server %d] %d 的term%d 已经失效，结束\n", rf.me, server, reply.Term)
+		return
+	}
+	if !reply.VoteGranted {
+		DPrintf("[server %d] %d 没有投给me，结束\n", rf.me, server)
+		return
+	}
 
 	*count++
 
 	// rules Candidate 2
 	if *count > len(rf.peers)/2 && rf.currentTerm == args.Term && rf.state == Candidate {
-		DPrintf("[server %d] 获得majority选票，become leader", rf.me)
+		DPrintf("[server %d] 获得多数选票，可以提前结束", rf.me)
 		once.Do(func() {
+			DPrintf("[server %d] 当前term %d 结束\n", rf.me, rf.currentTerm)
 			rf.state = Leader
 			rf.leaderResetLog()
-			rf.appendEntries()
+			// init
+			//DPrintf("[server %d] leader - nextIndex %#v", rf.me, rf.nextIndex)
+			rf.appendEntries(true)
 		})
 	}
 }
@@ -74,8 +87,8 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 	// rules All Servers 2
 	if args.Term > rf.currentTerm {
-		rf.currentTerm = args.Term
 		rf.state = Follower
+		rf.currentTerm = args.Term
 		rf.votedFor = -1
 	}
 
