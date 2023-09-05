@@ -79,7 +79,8 @@ type Raft struct {
 	nextIndex  []int // for each server, index of the next logs entry to send to that server (initialized to leader last logs index + 1)
 	matchIndex []int // for each server, index of the highest logs entry known to be replicated on server (initialized to 0, increases monotonically)
 
-	applyCh chan ApplyMsg
+	applyCh   chan ApplyMsg
+	applyCond *sync.Cond
 }
 
 // save Raft's persistent state to stable storage,
@@ -129,13 +130,28 @@ func (rf *Raft) readPersist(data []byte) {
 // term. the third return value is true if this server believes it is
 // the leader.
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
-	index := -1
-	term := -1
-	isLeader := true
-
 	// Your code here (2B).
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 
-	return index, term, isLeader
+	if rf.state != Leader {
+		return -1, rf.currentTerm, false
+	}
+
+	index := rf.lastLog().Index + 1
+	term := rf.currentTerm
+
+	// 添加日志
+	log := Log{
+		Term:    term,
+		Command: command,
+		Index:   index,
+	}
+	rf.logs = append(rf.logs, log)
+	DPrintf("[server %v]: term %v Start %v", rf.me, term, log)
+	rf.appendEntries(false)
+
+	return index, term, true
 }
 
 // the tester doesn't halt goroutines created by Raft after each test,
@@ -178,6 +194,34 @@ func (rf *Raft) ticker() {
 	}
 }
 
+func (rf *Raft) apply() {
+	DPrintf("[server %v]: Broadcast()", rf.me)
+	rf.applyCond.Broadcast()
+}
+
+func (rf *Raft) applier() {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
+	for !rf.killed() {
+		// rule All Servers 1
+		if rf.commitIndex > rf.lastApplied {
+			rf.lastApplied++
+			applyMsg := ApplyMsg{
+				CommandValid: true,
+				Command:      rf.logs[rf.lastApplied].Command,
+				CommandIndex: rf.lastApplied,
+			}
+			rf.mu.Unlock()
+			DPrintf("[server %d] apply applyMsg: %v", rf.me, applyMsg)
+			rf.applyCh <- applyMsg
+			rf.mu.Lock()
+		} else {
+			rf.applyCond.Wait()
+		}
+	}
+}
+
 // the service or tester wants to create a Raft server. the ports
 // of all the Raft servers (including this one) are in peers[]. this
 // server's port is peers[me]. all the servers' peers[] arrays
@@ -205,6 +249,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.nextIndex = make([]int, len(rf.peers))
 	rf.matchIndex = make([]int, len(rf.peers))
 	rf.applyCh = applyCh
+	rf.applyCond = sync.NewCond(&rf.mu)
 
 	rf.logs[0] = Log{Term: 0, Index: 0}
 	rf.leaderResetLog()
@@ -213,6 +258,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.readPersist(persister.ReadRaftState())
 
 	go rf.ticker()
+
+	go rf.applier()
 
 	return rf
 }

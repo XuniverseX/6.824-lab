@@ -17,6 +17,7 @@ type AppendEntriesReply struct {
 
 // leader发送appendEntries
 func (rf *Raft) appendEntries(heartbeat bool) {
+	lastLog := rf.lastLog()
 	// 遍历所有服务器的下标
 	for peer := range rf.peers {
 		//如果遍历到本leader服务器，重置选举超时时间
@@ -24,8 +25,6 @@ func (rf *Raft) appendEntries(heartbeat bool) {
 			rf.resetElectionTimeout()
 			continue
 		}
-
-		lastLog := rf.lastLog()
 
 		//DPrintf("[server %d] My lastLog is %d, server %d nextIndex is %d", rf.me, lastLog.Index, peer, rf.nextIndex[peer])
 
@@ -56,7 +55,7 @@ func (rf *Raft) appendEntries(heartbeat bool) {
 func (rf *Raft) leaderSend(server int, args *AppendEntriesArgs) {
 
 	var reply AppendEntriesReply
-	DPrintf("[server %d] Term:%d send AppendEntries to %d", rf.me, rf.currentTerm, server)
+	DPrintf("[server %d] Term:%d send AppendEntries to %d, leadercommit:%v", rf.me, rf.currentTerm, server, args.LeaderCommit)
 	if !rf.sendAppendEntries(server, args, &reply) {
 		return
 	}
@@ -64,18 +63,40 @@ func (rf *Raft) leaderSend(server int, args *AppendEntriesArgs) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	// rules for leaders 3.1
+	// rules Leaders 3.1
 	if reply.Success {
 		// 更新nextIndex和matchIndex
 		match := args.PrevLogIndex + len(args.Entries)
 		rf.nextIndex[server] = match + 1
 		rf.matchIndex[server] = match
-		return
-	}
-	// rules for leaders 3.2
-	if reply.Inconsistency {
+	} else if reply.Inconsistency {
+		// todo
+	} else if rf.nextIndex[server] > 1 {
 		rf.nextIndex[server]--
 	}
+
+	// rules Leader 4
+	if rf.state != Leader {
+		return
+	}
+
+	for n := rf.commitIndex + 1; n <= rf.lastLog().Index; n++ {
+		if rf.logs[n].Term != rf.currentTerm {
+			continue
+		}
+		count := 0
+		for peer := range rf.peers {
+			if rf.matchIndex[peer] >= n {
+				count++
+			}
+			if count > len(rf.peers)/2 {
+				rf.commitIndex = n
+				rf.apply()
+				break
+			}
+		}
+	}
+
 }
 
 // AppendEntries 接收rpc请求接口
@@ -106,7 +127,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	}
 
 	rf.resetElectionTimeout() // 重置选举定时器
-	DPrintf("[server %d] resetTimout", rf.me)
+	//DPrintf("[server %d] resetTimout", rf.me)
 
 	// rules RPC 2
 	contains := false
@@ -118,11 +139,6 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// 如果当前follower中没有日志与leader保存的prevLog相同，返回false
 	if !contains {
 		reply.Inconsistency = true
-		return
-	}
-
-	if len(args.Entries) == 0 {
-		reply.Success = true
 		return
 	}
 
@@ -140,7 +156,11 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// rules RPC 5
 	if args.LeaderCommit > rf.commitIndex {
 		rf.commitIndex = min(args.LeaderCommit, rf.lastLog().Index)
+		DPrintf("in")
+		rf.apply()
 	}
+
+	//DPrintf("[server %d] commitIndex: %d, LeaderCommit: %d", rf.me, rf.commitIndex, args.LeaderCommit)
 
 	reply.Success = true
 }

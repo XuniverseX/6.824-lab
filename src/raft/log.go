@@ -4,7 +4,6 @@ type Log struct {
 	Term    int
 	Command interface{}
 	Index   int
-	Content string
 }
 
 func (l *Log) Equals(log Log) bool {

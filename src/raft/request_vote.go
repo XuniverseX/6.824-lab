@@ -31,7 +31,7 @@ func (rf *Raft) GetState() (int, bool) {
 }
 
 func (rf *Raft) candidateSend(server int, args *RequestVoteArgs, count *int, once *sync.Once) {
-	DPrintf("[server %d]: term %v send RequestVote to %d\n", rf.me, args.Term, server)
+	//DPrintf("[server %d]: term %v send RequestVote to %d\n", rf.me, args.Term, server)
 	var reply RequestVoteReply
 	ok := rf.sendRequestVote(server, args, &reply)
 	if !ok {
@@ -51,7 +51,7 @@ func (rf *Raft) candidateSend(server int, args *RequestVoteArgs, count *int, onc
 		return
 	}
 	if !reply.VoteGranted {
-		DPrintf("[server %d] %d 没有投给me，结束\n", rf.me, server)
+		//DPrintf("[server %d] %d 没有投给me，结束\n", rf.me, server)
 		return
 	}
 
@@ -61,7 +61,6 @@ func (rf *Raft) candidateSend(server int, args *RequestVoteArgs, count *int, onc
 	if *count > len(rf.peers)/2 && rf.currentTerm == args.Term && rf.state == Candidate {
 		DPrintf("[server %d] 获得多数选票，可以提前结束", rf.me)
 		once.Do(func() {
-			DPrintf("[server %d] 当前term %d 结束\n", rf.me, rf.currentTerm)
 			rf.state = Leader
 			rf.leaderResetLog()
 			// init
@@ -94,6 +93,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 	// rules RPC 2
 	lastLog := rf.lastLog()
+	// 5.4.1
 	upToDate := args.LastLogTerm > lastLog.Term ||
 		(args.LastLogTerm == lastLog.Term && args.LastLogIndex >= lastLog.Index)
 	if (rf.votedFor == -1 || rf.votedFor == args.CandidateId) && upToDate {
