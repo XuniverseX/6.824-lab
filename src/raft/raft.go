@@ -194,6 +194,14 @@ func (rf *Raft) ticker() {
 	}
 }
 
+func (rf *Raft) convertToFollower(term int) {
+	if rf.currentTerm < term {
+		rf.state = Follower
+		rf.currentTerm = term
+		rf.votedFor = -1
+	}
+}
+
 func (rf *Raft) apply() {
 	DPrintf("[server %v]: Broadcast()", rf.me)
 	rf.applyCond.Broadcast()
@@ -240,7 +248,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// Your initialization code here (2A, 2B, 2C).
 	rf.state = Follower
-	rf.heartbeat = 100 * time.Millisecond
+	rf.heartbeat = 200 * time.Millisecond
 	rf.currentTerm = 0
 	rf.votedFor = -1
 	rf.logs = make([]Log, 1)

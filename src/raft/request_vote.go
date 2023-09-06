@@ -26,7 +26,6 @@ func (rf *Raft) GetState() (int, bool) {
 	// Your code here (2A).
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	DPrintf("[server %d] Term:%d I am %d", rf.me, rf.currentTerm, rf.state)
 	return rf.currentTerm, rf.state == Leader
 }
 
@@ -43,7 +42,7 @@ func (rf *Raft) candidateSend(server int, args *RequestVoteArgs, count *int, onc
 
 	if reply.Term > args.Term {
 		DPrintf("[server %d] %d 在新的term，更新term，结束\n", rf.me, server)
-		rf.currentTerm = reply.Term
+		rf.convertToFollower(reply.Term)
 		return
 	}
 	if reply.Term < args.Term {
@@ -86,9 +85,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 	// rules All Servers 2
 	if args.Term > rf.currentTerm {
-		rf.state = Follower
-		rf.currentTerm = args.Term
-		rf.votedFor = -1
+		rf.convertToFollower(args.Term)
 	}
 
 	// rules RPC 2

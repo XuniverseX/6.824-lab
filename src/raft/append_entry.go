@@ -55,13 +55,22 @@ func (rf *Raft) appendEntries(heartbeat bool) {
 func (rf *Raft) leaderSend(server int, args *AppendEntriesArgs) {
 
 	var reply AppendEntriesReply
-	DPrintf("[server %d] Term:%d send AppendEntries to %d, leadercommit:%v", rf.me, rf.currentTerm, server, args.LeaderCommit)
+	//DPrintf("[server %d] Term:%d send AppendEntries to %d", rf.me, rf.currentTerm, server)
 	if !rf.sendAppendEntries(server, args, &reply) {
 		return
 	}
 
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+
+	if reply.Term > rf.currentTerm {
+		rf.convertToFollower(reply.Term)
+		return
+	}
+
+	if args.Term != rf.currentTerm {
+		return
+	}
 
 	// rules Leaders 3.1
 	if reply.Success {
@@ -70,7 +79,8 @@ func (rf *Raft) leaderSend(server int, args *AppendEntriesArgs) {
 		rf.nextIndex[server] = match + 1
 		rf.matchIndex[server] = match
 	} else if reply.Inconsistency {
-		// todo
+		rf.nextIndex[server] = 1
+		rf.matchIndex[server] = 0
 	} else if rf.nextIndex[server] > 1 {
 		rf.nextIndex[server]--
 	}
@@ -84,8 +94,11 @@ func (rf *Raft) leaderSend(server int, args *AppendEntriesArgs) {
 		if rf.logs[n].Term != rf.currentTerm {
 			continue
 		}
-		count := 0
+		count := 1
 		for peer := range rf.peers {
+			if peer == rf.me {
+				continue
+			}
 			if rf.matchIndex[peer] >= n {
 				count++
 			}
@@ -104,16 +117,14 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
+	DPrintf("[server %v] Term:%v, leader: %v, leader.Term: %v, leader.Entries: %v", rf.me, rf.currentTerm, args.LeaderId, args.Term, args.Entries)
 	//初始化reply
 	reply.Success = false
 	reply.Term = rf.currentTerm
 
 	// rules All Servers 2
 	if args.Term > rf.currentTerm {
-		if rf.state != Follower {
-			rf.state = Follower
-		}
-		rf.currentTerm = args.Term
+		rf.convertToFollower(args.Term)
 	}
 
 	// rules RPC 1
@@ -127,7 +138,6 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	}
 
 	rf.resetElectionTimeout() // 重置选举定时器
-	//DPrintf("[server %d] resetTimout", rf.me)
 
 	// rules RPC 2
 	contains := false
@@ -156,7 +166,6 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// rules RPC 5
 	if args.LeaderCommit > rf.commitIndex {
 		rf.commitIndex = min(args.LeaderCommit, rf.lastLog().Index)
-		DPrintf("in")
 		rf.apply()
 	}
 
