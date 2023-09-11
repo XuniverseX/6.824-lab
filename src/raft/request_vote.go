@@ -62,6 +62,7 @@ func (rf *Raft) candidateSend(server int, args *RequestVoteArgs, count *int, onc
 		once.Do(func() {
 			rf.state = Leader
 			rf.leaderResetLog()
+			rf.persist()
 			// init
 			//DPrintf("[server %d] leader - nextIndex %#v", rf.me, rf.nextIndex)
 			rf.appendEntries(true)

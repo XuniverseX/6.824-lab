@@ -156,10 +156,12 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	for idx, entry := range args.Entries {
 		if entry.Index <= rf.lastLog().Index && entry.Term != rf.logs[entry.Index].Term {
 			rf.truncateLog(entry.Index)
+			rf.persist()
 		}
 		//添加不存在的新日志
 		if entry.Index > rf.lastLog().Index {
 			rf.logs = append(rf.logs, args.Entries[idx:]...)
+			rf.persist()
 		}
 	}
 

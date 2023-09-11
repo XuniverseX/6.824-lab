@@ -17,6 +17,7 @@ func (rf *Raft) leaderElection() {
 	// rules Candidate 1
 	rf.currentTerm++
 	rf.votedFor = rf.me
+	rf.persist()
 	rf.resetElectionTimeout()
 
 	lastLog := rf.lastLog()

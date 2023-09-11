@@ -18,6 +18,9 @@ package raft
 //
 
 import (
+	"bytes"
+	"labgob"
+	"log"
 	"sync"
 	"time"
 )
@@ -67,17 +70,17 @@ type Raft struct {
 	electionTime time.Time
 
 	// Persistent state on all servers:
-	currentTerm int   // latest term server has seen (initialized to 0 on first boot, increases monotonically)
-	votedFor    int   // candidateId that received vote in current term (or null if none)
-	logs        []Log // logs entries; each entry contains command for state machine, and term when entry was received by leader (first index is 1)
+	currentTerm int
+	votedFor    int
+	logs        []Log
 
 	// Volatile state on all servers:
-	commitIndex int // index of the highest logs entry known to be committed (initialized to 0, increases monotonically)
-	lastApplied int // index of the highest logs entry applied to state machine (initialized to 0, increases monotonically)
+	commitIndex int
+	lastApplied int
 
 	// Volatile state on leaders:
-	nextIndex  []int // for each server, index of the next logs entry to send to that server (initialized to leader last logs index + 1)
-	matchIndex []int // for each server, index of the highest logs entry known to be replicated on server (initialized to 0, increases monotonically)
+	nextIndex  []int
+	matchIndex []int
 
 	applyCh   chan ApplyMsg
 	applyCond *sync.Cond
@@ -95,6 +98,14 @@ func (rf *Raft) persist() {
 	// e.Encode(rf.yyy)
 	// data := w.Bytes()
 	// rf.persister.SaveRaftState(data)
+
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+	e.Encode(rf.currentTerm)
+	e.Encode(rf.votedFor)
+	e.Encode(rf.logs)
+	data := w.Bytes()
+	rf.persister.SaveRaftState(data)
 }
 
 // restore previously persisted state.
@@ -115,6 +126,25 @@ func (rf *Raft) readPersist(data []byte) {
 	//   rf.xxx = xxx
 	//   rf.yyy = yyy
 	// }
+
+	if data == nil || len(data) < 1 {
+		return
+	}
+
+	r := bytes.NewBuffer(data)
+	d := labgob.NewDecoder(r)
+	var currentTerm int
+	var voteFor int
+	var logs []Log
+	if d.Decode(&currentTerm) != nil ||
+		d.Decode(&voteFor) != nil ||
+		d.Decode(&logs) != nil {
+		log.Fatal("fail to read persist")
+	} else {
+		rf.currentTerm = currentTerm
+		rf.votedFor = voteFor
+		rf.logs = logs
+	}
 }
 
 // the service using Raft (e.g. a k/v server) wants to start
@@ -148,6 +178,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		Index:   index,
 	}
 	rf.logs = append(rf.logs, log)
+	rf.persist()
 	DPrintf("[server %v]: term %v Start %v", rf.me, term, log)
 	rf.appendEntries(false)
 
@@ -200,6 +231,7 @@ func (rf *Raft) convertToFollower(term int) {
 		rf.currentTerm = term
 		rf.votedFor = -1
 	}
+	rf.persist()
 }
 
 func (rf *Raft) apply() {
